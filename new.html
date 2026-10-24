@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Singing Studio - Laptop Speaker Output</title>
+<style>
+  body { margin:0; background:#0a0a0f; color:#fff; font-family: Arial, sans-serif; display:flex; flex-direction:column; height:100vh; }
+ .header { padding:16px 20px; background:#12121a; border-bottom:1px solid #222; display:flex; justify-content:space-between; align-items:center; }
+ .header h2 { margin:0; color:#7DD3EE; }
+ .container { display:flex; flex:1; gap:15px; padding:15px; overflow:hidden; }
+ .left { flex:1; background:#11111a; border-radius:15px; border:1px solid #222; padding:15px; display:flex; flex-direction:column; }
+ .right { flex:1.6; background: radial-gradient(circle at center, #1e1e3a 0%, #08080c 100%); border-radius:20px; border:1px solid #222; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:30px; position:relative; }
+  textarea { flex:1; background:#0d0d14; border:1px solid #333; color:#fff; border-radius:12px; padding:12px; font-size:15px; resize:none; outline:none; }
+  textarea:focus { border-color:#7DD3EE; }
+  button { background:#7DD3EE; color:#000; border:none; padding:12px 20px; border-radius:25px; font-weight:bold; cursor:pointer; margin-right:6px; }
+  button.secondary { background:#222; color:#fff; border:1px solid #333; }
+  button:disabled { opacity:0.5; }
+ .controls { display:flex; gap:8px; margin-top:12px; flex-wrap:wrap; align-items:center; }
+  select, input[type=range] { background:#0d0d14; color:#fff; border:1px solid #333; border-radius:8px; padding:6px; }
+  #lyricsDisplay { font-size:34px; font-weight:800; line-height:1.7; text-align:center; min-height:250px; max-width:90%; }
+ .word { display:inline-block; opacity:0.2; transition:all 0.4s ease; margin:0 6px; }
+ .word.active { opacity:1; transform:scale(1.35); color:#7DD3EE; text-shadow:0 0 25px #7DD3EE; }
+ .word.played { opacity:1; color:#fff; transform:scale(1); }
+ .mic { position:absolute; top:20px; right:20px; width:65px; height:65px; background:#7DD3EE; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:32px; }
+ .mic.singing { animation: pulse 0.5s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(125,211,238,0.7)} 70%{box-shadow:0 0 0 25px rgba(125,211,238,0)} 100%{box-shadow:0 0 0 0 rgba(125,211,238,0)} }
+ .visualizer { display:flex; gap:4px; height:40px; margin-top:20px; }
+ .bar { width:5px; background:#7DD3EE; border-radius:10px; }
+ .bar.active { animation: wave 0.5s infinite ease-in-out; }
+  @keyframes wave { 0%,100%{height:10px} 50%{height:35px} }
+ .label { font-size:11px; color:#888; }
+ .audio-warning { background:#332a00; border:1px solid #665500; color:#ffcc00; padding:8px 12px; border-radius:8px; font-size:12px; margin-bottom:10px; display:none; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h2>Live Singing App - Laptop Speaker</h2>
+  <span style="color:#666; font-size:12px;">Type -> Sing with speaker audio</span>
+</div>
+
+<div class="container">
+  <div class="left">
+    <div id="audioWarning" class="audio-warning">Please click anywhere to enable audio. Browser blocked auto-play.</div>
+    <span class="label">Type your song here:</span>
+    <textarea id="songInput" placeholder="Type any song lyrics here...">Tum hi ho tum hi ho
+Zindagi ab tum hi ho
+Chain bhi mera dard bhi
+Meri aashiqui ab tum hi ho</textarea>
+
+    <div class="controls">
+      <button id="playBtn" onclick="startSinging()">Play and Sing</button>
+      <button class="secondary" onclick="stopSinging()">Stop</button>
+    </div>
+
+    <div class="controls">
+      <span class="label">Voice:</span>
+      <select id="voiceSelect" style="flex:1;"></select>
+    </div>
+
+    <div class="controls">
+      <span class="label">Speed:</span>
+      <input type="range" id="speed" min="150" max="900" value="400">
+      <span id="speedVal" class="label">400ms</span>
+
+      <span class="label" style="margin-left:10px;">Pitch:</span>
+      <input type="range" id="pitch" min="0.5" max="1.8" step="0.1" value="1.0">
+      <span id="pitchVal" class="label">1.0</span>
+    </div>
+
+    <div class="controls">
+      <span class="label">Volume:</span>
+      <input type="range" id="volume" min="0" max="1" step="0.1" value="1">
+      <span id="volumeVal" class="label">100%</span>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="mic" id="mic">MIC</div>
+    <div id="lyricsDisplay">Your live lyrics will appear here with audio...</div>
+    <div class="visualizer" id="visualizer">
+      <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+    </div>
+    <p id="status" style="color:#666; font-size:12px; margin-top:15px;">Ready - Audio output: Laptop Speakers</p>
+  </div>
+</div>
+
+<script>
+// Global variables
+let voices = [];
+let wordsArray = [];
+let currentIndex = 0;
+let timer = null;
+let synth = window.speechSynthesis;
+let audioContext = null;
+let isPlaying = false;
+
+// Initialize audio context on user interaction
+function initAudio() {
+  if (!audioContext) {
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioContext.state === 'suspended') {
+    audioContext.resume();
+  }
+  document.getElementById('audioWarning').style.display = 'none';
+}
+
+document.addEventListener('click', initAudio, {once: true});
+
+// Load available voices
+function loadVoices() {
+  voices = synth.getVoices();
+  const select = document.getElementById('voiceSelect');
+  select.innerHTML = '';
+  voices.forEach((voice, i) => {
+    const option = document.createElement('option');
+    option.value = i;
+    option.textContent = voice.name + ' (' + voice.lang + ')';
+    // Auto select Hindi or Indian English if available
+    if (voice.lang.includes('hi') || voice.lang.includes('en-IN') || voice.lang.includes('en-GB')) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+  if (synth.onvoiceschanged!== undefined) {
+    synth.onvoiceschanged = loadVoices;
+  }
+}
+setTimeout(loadVoices, 300);
+if (synth.onvoiceschanged!== undefined) {
+  synth.onvoiceschanged = loadVoices;
+}
+
+// UI Listeners
+document.getElementById('speed').addEventListener('input', e => {
+  document.getElementById('speedVal').innerText = e.target.value + 'ms';
+});
+document.getElementById('pitch').addEventListener('input', e => {
+  document.getElementById('pitchVal').innerText = e.target.value;
+});
+document.getElementById('volume').addEventListener('input', e => {
+  document.getElementById('volumeVal').innerText = Math.round(e.target.value * 100) + '%';
+});
+
+// Play tone for musical effect
+function playTone(frequency, duration) {
+  if (!audioContext) return;
+  const oscillator = audioContext.createOscillator();
+  const gainNode = audioContext.createGain();
+  oscillator.type = 'sine';
+  oscillator.frequency.value = frequency;
+  oscillator.connect(gainNode);
+  gainNode.connect(audioContext.destination);
+  gainNode.gain.setValueAtTime(0.05, audioContext.currentTime);
+  gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+  oscillator.start();
+  oscillator.stop(audioContext.currentTime + duration);
+}
+
+// Speak single word with laptop speaker
+function speakWord(word) {
+  if (!word) return;
+  // Cancel previous to avoid overlap
+  synth.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(word);
+  const voiceIndex = document.getElementById('voiceSelect').value;
+  if (voices[voiceIndex]) {
+    utterance.voice = voices[voiceIndex];
+  }
+  utterance.pitch = parseFloat(document.getElementById('pitch').value);
+  utterance.rate = 0.9;
+  utterance.volume = parseFloat(document.getElementById('volume').value);
+
+  // This will play through laptop speakers like YouTube
+  synth.speak(utterance);
+
+  // Add musical tone behind voice for singing effect
+  const baseFreq = 200 + (currentIndex % 7) * 20;
+  playTone(baseFreq, 0.4);
+}
+
+// Start singing
+function startSinging() {
+  initAudio();
+  stopSinging();
+
+  const text = document.getElementById('songInput').value.trim();
+  if (!text) {
+    alert('Please type a song first');
+    return;
+  }
+
+  wordsArray = text.split(/\s+/);
+  currentIndex = 0;
+  isPlaying = true;
+
+  const display = document.getElementById('lyricsDisplay');
+  display.innerHTML = '';
+
+  // Create word elements
+  wordsArray.forEach((w, i) => {
+    const span = document.createElement('span');
+    span.className = 'word';
+    span.id = 'word-' + i;
+    span.textContent = w + ' ';
+    display.appendChild(span);
+  });
+
+  document.getElementById('mic').classList.add('singing');
+  document.getElementById('visualizer').querySelectorAll('.bar').forEach(b => b.classList.add('active'));
+  document.getElementById('status').textContent = 'Singing through laptop speakers...';
+  document.getElementById('playBtn').disabled = true;
+
+  const speed = parseInt(document.getElementById('speed').value);
+
+  timer = setInterval(() => {
+    // Remove active from previous
+    if (currentIndex > 0) {
+      const prev = document.getElementById('word-' + (currentIndex - 1));
+      if (prev) {
+        prev.classList.remove('active');
+        prev.classList.add('played');
+      }
+    }
+
+    if (currentIndex < wordsArray.length) {
+      const current = document.getElementById('word-' + currentIndex);
+      if (current) {
+        current.classList.add('active');
+        current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        // Speak through laptop speaker
+        speakWord(wordsArray[currentIndex]);
+        document.getElementById('status').textContent = 'Now singing: ' + wordsArray[currentIndex];
+      }
+      currentIndex++;
+    } else {
+      // Finished
+      stopSinging();
+      document.getElementById('status').textContent = 'Finished - Song completed';
+      display.innerHTML += '<br><br><span style="color:#7DD3EE; font-size:20px;">Song Finished</span>';
+    }
+  }, speed);
+}
+
+// Stop singing
+function stopSinging() {
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
+  synth.cancel();
+  isPlaying = false;
+  document.getElementById('mic').classList.remove('singing');
+  document.getElementById('visualizer').querySelectorAll('.bar').forEach(b => b.classList.remove('active'));
+  document.getElementById('playBtn').disabled = false;
+  document.getElementById('status').textContent = 'Stopped - Ready';
+}
+
+// Auto enable audio on first click
+window.addEventListener('load', () => {
+  document.getElementById('audioWarning').style.display = 'block';
+});
+</script>
+</body>
+</html>
